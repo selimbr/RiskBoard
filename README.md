@@ -103,7 +103,8 @@ npm test
 ## CI (GitHub Actions)
 
 Le workflow GitHub Actions (`.github/workflows/ci.yml`) s'exécute à chaque push sur
-toute branche, ainsi que sur les pull requests.
+`main` (validation après merge), ainsi qu'à la création/réouverture des pull
+requests vers `main`.
 
 Pour visualiser les étapes build/test backend et frontend, ouvrir l'onglet
 **Actions** du dépôt GitHub puis sélectionner un run du workflow **CI**.
