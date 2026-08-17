@@ -1,6 +1,7 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
 import {
   AbstractControl,
+  AsyncValidatorFn,
   FormControl,
   FormGroup,
   ReactiveFormsModule,
@@ -8,6 +9,7 @@ import {
   ValidatorFn,
   Validators
 } from '@angular/forms';
+import { catchError, debounceTime, map, of, switchMap } from 'rxjs';
 import { DecimalPipe } from '@angular/common';
 
 import { CounterpartyService } from '../../core/services/counterparty.service';
@@ -47,7 +49,8 @@ export class DerogationForm implements OnInit {
     counterpartyId: new FormControl<number | null>(null, { validators: [Validators.required] }),
     limitType: new FormControl<LimitType | null>(null, { validators: [Validators.required] }),
     amount: new FormControl<number | null>(null, {
-      validators: [Validators.required, greaterThanZero()]
+      validators: [Validators.required, greaterThanZero()],
+      asyncValidators: [this.amountWithinLimitValidator()]
     }),
     reason: new FormControl<string>('', { nonNullable: true, validators: [Validators.required, Validators.minLength(20)] }),
     requestedBy: new FormControl<string>('', { nonNullable: true, validators: [Validators.required, Validators.minLength(6)] })
@@ -76,6 +79,27 @@ export class DerogationForm implements OnInit {
       next: () => this.limitCheckState.set('exists'),
       error: () => this.limitCheckState.set('missing')
     });
+  }
+
+  private amountWithinLimitValidator(): AsyncValidatorFn {
+    return (control: AbstractControl) => {
+      const counterpartyId = control.parent?.get('counterpartyId')?.value;
+      const limitType = control.parent?.get('limitType')?.value;
+      const amount = control.value;
+
+      if (!counterpartyId || !limitType || !amount || amount <= 0) {
+        return of(null);
+      }
+
+      return of(null).pipe(
+        debounceTime(300),
+        switchMap(() => this.derogationService.checkEligibility(counterpartyId, limitType, amount)),
+        map((eligibility) =>
+          eligibility.allowed ? null : { exceeds150: { maxAllowed: eligibility.maxAllowedAmount } }
+        ),
+        catchError(() => of({ limitNotFound: true }))
+      );
+    };
   }
 
   protected get canSubmit(): boolean {

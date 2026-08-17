@@ -21,3 +21,8 @@ export interface CreateDerogationRequest {
   reason: string;
   requestedBy: string;
 }
+
+export interface DerogationEligibility {
+  allowed: boolean;
+  maxAllowedAmount: number;
+}

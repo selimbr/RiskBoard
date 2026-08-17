@@ -3,7 +3,8 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import { API_BASE_URL } from '../api-base-url';
-import { CreateDerogationRequest, DerogationRequestDto } from '../models/derogation.model';
+import { LimitType } from '../models/risk.model';
+import { CreateDerogationRequest, DerogationEligibility, DerogationRequestDto } from '../models/derogation.model';
 
 @Injectable({ providedIn: 'root' })
 export class DerogationService {
@@ -12,6 +13,12 @@ export class DerogationService {
 
   create(request: CreateDerogationRequest): Observable<DerogationRequestDto> {
     return this.http.post<DerogationRequestDto>(this.baseUrl, request);
+  }
+
+  checkEligibility(counterpartyId: number, limitType: LimitType, amount: number): Observable<DerogationEligibility> {
+    return this.http.get<DerogationEligibility>(`${this.baseUrl}/eligibility`, {
+      params: { counterpartyId, limitType, amount }
+    });
   }
 
   listPending(): Observable<DerogationRequestDto[]> {

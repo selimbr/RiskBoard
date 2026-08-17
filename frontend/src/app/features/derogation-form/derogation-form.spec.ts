@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { of, throwError } from 'rxjs';
 
 import { DerogationForm } from './derogation-form';
@@ -31,14 +31,23 @@ describe('DerogationForm', () => {
     requestedBy: 'j.dupont'
   };
 
+  const maxAllowedAmount = riskLimit.maxAmount * 1.5;
+
   let counterpartyServiceSpy: { getAll: ReturnType<typeof vi.fn> };
   let riskLimitServiceSpy: { findLimit: ReturnType<typeof vi.fn> };
-  let derogationServiceSpy: { create: ReturnType<typeof vi.fn> };
+  let derogationServiceSpy: { create: ReturnType<typeof vi.fn>; checkEligibility: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
     counterpartyServiceSpy = { getAll: vi.fn().mockReturnValue(of(counterparties)) };
     riskLimitServiceSpy = { findLimit: vi.fn().mockReturnValue(of(riskLimit)) };
-    derogationServiceSpy = { create: vi.fn().mockReturnValue(of({})) };
+    derogationServiceSpy = {
+      create: vi.fn().mockReturnValue(of({})),
+      // Reflète la règle des 150% telle que calculée par le backend (le composant
+      // ne fait plus ce calcul lui-même) : maxAllowedAmount vient de la réponse API.
+      checkEligibility: vi.fn().mockImplementation((_counterpartyId: number, _limitType: string, amount: number) =>
+        of({ allowed: amount <= maxAllowedAmount, maxAllowedAmount })
+      )
+    };
 
     await TestBed.configureTestingModule({
       imports: [DerogationForm],
@@ -48,6 +57,10 @@ describe('DerogationForm', () => {
         { provide: DerogationService, useValue: derogationServiceSpy }
       ]
     }).compileComponents();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   function createComponent() {
@@ -94,25 +107,52 @@ describe('DerogationForm', () => {
 
   it('should enable submit once the form is valid and the limit exists', () => {
     const { component } = createComponent();
+    vi.useFakeTimers();
 
     component.form.setValue(validFormValue);
+    vi.advanceTimersByTime(300); // laisse le temps au validator asynchrone (debounce 300ms) de se résoudre
 
     expect(component.limitCheckState()).toBe('exists');
     expect(component.canSubmit).toBe(true);
   });
 
-  it('should never call the backend when only the amount changes (no async validator left on amount)', () => {
+  it('should not call the backend for the 150% check while counterparty or limit type is not yet picked', () => {
+    const { component } = createComponent();
+
+    component.form.controls.amount.setValue(2_000_000);
+
+    expect(derogationServiceSpy.checkEligibility).not.toHaveBeenCalled();
+  });
+
+  it('should flag exceeds150 after the debounce when amount is above 150% of the limit', () => {
     const { component } = createComponent();
 
     component.form.controls.counterpartyId.setValue(1);
     component.form.controls.limitType.setValue('CREDIT');
-    riskLimitServiceSpy.findLimit.mockClear();
+    vi.useFakeTimers();
 
-    component.form.controls.amount.setValue(100_000);
-    component.form.controls.amount.setValue(900_000);
-    component.form.controls.amount.setValue(2_000_000);
+    component.form.controls.amount.setValue(2_000_000); // > 1_000_000 * 1.5
+    vi.advanceTimersByTime(300);
 
-    expect(riskLimitServiceSpy.findLimit).not.toHaveBeenCalled();
+    expect(derogationServiceSpy.checkEligibility).toHaveBeenCalledWith(1, 'CREDIT', 2_000_000);
+    expect(component.form.controls.amount.errors).toEqual({ exceeds150: { maxAllowed: 1_500_000 } });
+    expect(component.canSubmit).toBe(false);
+  });
+
+  it('should be valid after the debounce when amount is within 150% of the limit', () => {
+    const { component } = createComponent();
+
+    component.form.controls.counterpartyId.setValue(1);
+    component.form.controls.limitType.setValue('CREDIT');
+    component.form.controls.reason.setValue(validFormValue.reason);
+    component.form.controls.requestedBy.setValue('j.dupont');
+    vi.useFakeTimers();
+
+    component.form.controls.amount.setValue(1_200_000); // < 1_000_000 * 1.5
+    vi.advanceTimersByTime(300);
+
+    expect(component.form.controls.amount.errors).toBeNull();
+    expect(component.canSubmit).toBe(true);
   });
 
   it('should not call the derogation API when the form is invalid', () => {
@@ -125,7 +165,9 @@ describe('DerogationForm', () => {
 
   it('should submit the derogation request and reset the form on success', () => {
     const { component } = createComponent();
+    vi.useFakeTimers();
     component.form.setValue(validFormValue);
+    vi.advanceTimersByTime(300);
 
     component.submit();
 
@@ -142,14 +184,19 @@ describe('DerogationForm', () => {
     expect(component.form.controls.amount.value).toBeNull();
   });
 
-  it('should surface the backend business-rule rejection (e.g. the 150% rule) on submit failure', () => {
+  it('should surface a backend business-rule rejection on submit failure even though the frontend validator passed', () => {
+    // Simule un écart entre le validator asynchrone (passé) et la validation
+    // finale côté backend (rejetée) - ex. la limite a changé entre-temps.
     derogationServiceSpy.create.mockReturnValue(
       throwError(() => ({
-        error: { message: 'Montant demandé (2000000) supérieur à 150% de la limite max (1500000)' }
+        error: { message: 'Montant demandé (1200000) supérieur à 150% de la limite max (900000)' }
       }))
     );
     const { component } = createComponent();
-    component.form.setValue({ ...validFormValue, amount: 2_000_000 });
+    vi.useFakeTimers();
+    component.form.setValue({ ...validFormValue, amount: 1_200_000 });
+    vi.advanceTimersByTime(300);
+    expect(component.canSubmit).toBe(true);
 
     component.submit();
 
@@ -161,7 +208,9 @@ describe('DerogationForm', () => {
   it('should fall back to a generic error message when the backend response has no message', () => {
     derogationServiceSpy.create.mockReturnValue(throwError(() => ({})));
     const { component } = createComponent();
+    vi.useFakeTimers();
     component.form.setValue(validFormValue);
+    vi.advanceTimersByTime(300);
 
     component.submit();
 

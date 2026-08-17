@@ -19,6 +19,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import fr.riskBoard.dto.CreateDerogationRequest;
+import fr.riskBoard.dto.DerogationEligibility;
 import fr.riskBoard.dto.DerogationRequestDto;
 import fr.riskBoard.entities.Counterparty;
 import fr.riskBoard.entities.DerogationRequest;
@@ -163,6 +164,36 @@ class DerogationRequestServiceTest {
 
         verify(riskLimitRepository, never()).findByCounterpartyIdAndLimitType(any(), any());
         verify(derogationRequestRepository, never()).save(any());
+    }
+
+    // --- checkEligibility() ---
+
+    @Test
+    void shouldReportEligibleWhenAmountWithin150PercentOfLimit() {
+        when(riskLimitRepository.findByCounterpartyIdAndLimitType(1L, LimitType.CREDIT)).thenReturn(Optional.of(riskLimit));
+
+        DerogationEligibility eligibility = service.checkEligibility(1L, LimitType.CREDIT, BigDecimal.valueOf(1_200_000));
+
+        assertThat(eligibility.isAllowed()).isTrue();
+        assertThat(eligibility.getMaxAllowedAmount()).isEqualByComparingTo(BigDecimal.valueOf(1_500_000));
+    }
+
+    @Test
+    void shouldReportNotEligibleWhenAmountAbove150PercentOfLimit() {
+        when(riskLimitRepository.findByCounterpartyIdAndLimitType(1L, LimitType.CREDIT)).thenReturn(Optional.of(riskLimit));
+
+        DerogationEligibility eligibility = service.checkEligibility(1L, LimitType.CREDIT, BigDecimal.valueOf(1_600_000));
+
+        assertThat(eligibility.isAllowed()).isFalse();
+        assertThat(eligibility.getMaxAllowedAmount()).isEqualByComparingTo(BigDecimal.valueOf(1_500_000));
+    }
+
+    @Test
+    void shouldThrowNotFoundWhenCheckingEligibilityForMissingLimit() {
+        when(riskLimitRepository.findByCounterpartyIdAndLimitType(1L, LimitType.CREDIT)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.checkEligibility(1L, LimitType.CREDIT, BigDecimal.valueOf(100_000)))
+                .isInstanceOf(NotFoundException.class);
     }
 
     // --- listPending() ---

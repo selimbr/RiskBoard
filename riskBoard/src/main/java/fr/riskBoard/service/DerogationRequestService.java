@@ -11,7 +11,9 @@ import fr.riskBoard.entities.Counterparty;
 import fr.riskBoard.entities.DerogationRequest;
 import fr.riskBoard.entities.RiskLimit;
 import fr.riskBoard.enums.DerogationStatus;
+import fr.riskBoard.enums.LimitType;
 import fr.riskBoard.dto.CreateDerogationRequest;
+import fr.riskBoard.dto.DerogationEligibility;
 import fr.riskBoard.dto.DerogationRequestDto;
 import fr.riskBoard.exception.BusinessRuleException;
 import fr.riskBoard.exception.NotFoundException;
@@ -39,7 +41,7 @@ public class DerogationRequestService {
                 .orElseThrow(() -> new BusinessRuleException(
                         "Aucune limite " + request.getLimitType() + " n'existe pour la contrepartie " + counterparty.getName()));
 
-        BigDecimal maxAllowed = riskLimit.getMaxAmount().multiply(MAX_DEROGATION_MULTIPLIER);
+        BigDecimal maxAllowed = maxDerogationAmount(riskLimit);
         if (request.getAmount().compareTo(maxAllowed) > 0) {
             throw new BusinessRuleException(
                     "Montant demandé (" + request.getAmount() + ") supérieur à 150% de la limite max ("
@@ -57,6 +59,27 @@ public class DerogationRequestService {
                 .build();
 
         return toDto(derogationRequestRepository.save(derogationRequest));
+    }
+
+    /**
+     * Vérifie la règle des 150% pour un montant donné sans créer de demande -
+     * utilisée par le validator asynchrone du formulaire frontend, qui ne doit
+     * pas reproduire ce calcul côté client.
+     */
+    public DerogationEligibility checkEligibility(Long counterpartyId, LimitType limitType, BigDecimal amount) {
+        RiskLimit riskLimit = riskLimitRepository.findByCounterpartyIdAndLimitType(counterpartyId, limitType)
+                .orElseThrow(() -> new NotFoundException(
+                        "Aucune limite " + limitType + " n'existe pour la contrepartie " + counterpartyId));
+
+        BigDecimal maxAllowed = maxDerogationAmount(riskLimit);
+        return DerogationEligibility.builder()
+                .allowed(amount.compareTo(maxAllowed) <= 0)
+                .maxAllowedAmount(maxAllowed)
+                .build();
+    }
+
+    private BigDecimal maxDerogationAmount(RiskLimit riskLimit) {
+        return riskLimit.getMaxAmount().multiply(MAX_DEROGATION_MULTIPLIER);
     }
 
     public List<DerogationRequestDto> listPending() {
