@@ -1,0 +1,89 @@
+<h1>Demande de dérogation</h1>
+
+<form [formGroup]="form" (ngSubmit)="submit()">
+  <div class="field">
+    <label for="counterpartyId">Contrepartie</label>
+    <select id="counterpartyId" formControlName="counterpartyId">
+      <option [ngValue]="null">-- Sélectionner --</option>
+      @for (c of counterparties(); track c.id) {
+        <option [ngValue]="c.id">{{ c.name }}</option>
+      }
+    </select>
+    @if (form.controls.counterpartyId.invalid && form.controls.counterpartyId.touched) {
+      <p class="field-error">La contrepartie est obligatoire.</p>
+    }
+  </div>
+
+  <div class="field">
+    <span class="radio-label">Type de risque</span>
+    <div class="radio-group">
+      @for (type of limitTypes; track type) {
+        <label>
+          <input type="radio" [value]="type" formControlName="limitType" />
+          {{ type }}
+        </label>
+      }
+    </div>
+    @if (form.controls.limitType.invalid && form.controls.limitType.touched) {
+      <p class="field-error">Le type de risque est obligatoire.</p>
+    }
+  </div>
+
+  @if (limitCheckState() === 'checking') {
+    <p class="info">Vérification de l'existence de la limite...</p>
+  }
+  @if (limitCheckState() === 'missing') {
+    <p class="field-error">Aucune limite n'existe pour cette contrepartie et ce type de risque. La demande ne peut pas être soumise.</p>
+  }
+
+  <div class="field">
+    <label for="amount">Montant demandé</label>
+    <input id="amount" type="number" formControlName="amount" min="0" step="any" />
+    @if (form.controls.amount.touched) {
+      @if (form.controls.amount.errors?.['required']) {
+        <p class="field-error">Le montant est obligatoire.</p>
+      }
+      @if (form.controls.amount.errors?.['mustBePositive']) {
+        <p class="field-error">Le montant doit être strictement supérieur à 0.</p>
+      }
+      @if (form.controls.amount.errors?.['exceeds150']) {
+        <p class="field-error">
+          Le montant dépasse 150% de la limite max ({{ form.controls.amount.errors?.['exceeds150'].maxAllowed | number: '1.0-2' }} autorisé).
+        </p>
+      }
+      @if (form.controls.amount.errors?.['limitNotFound']) {
+        <p class="field-error">Impossible de vérifier la limite pour ce montant.</p>
+      }
+      @if (form.controls.amount.pending) {
+        <p class="info">Vérification en cours...</p>
+      }
+    }
+  </div>
+
+  <div class="field">
+    <label for="reason">Raison</label>
+    <textarea id="reason" formControlName="reason" rows="4"></textarea>
+    @if (form.controls.reason.invalid && form.controls.reason.touched) {
+      <p class="field-error">La raison doit contenir au moins 20 caractères.</p>
+    }
+  </div>
+
+  <div class="field">
+    <label for="requestedBy">Demandé par</label>
+    <input id="requestedBy" type="text" formControlName="requestedBy" />
+    @if (form.controls.requestedBy.invalid && form.controls.requestedBy.touched) {
+      <p class="field-error">Ce champ doit contenir au moins 6 caractères.</p>
+    }
+  </div>
+
+  @if (submitError()) {
+    <p class="field-error">{{ submitError() }}</p>
+  }
+  @if (submitted()) {
+    <p class="success">Demande de dérogation envoyée avec succès.</p>
+  }
+
+  <button type="submit" [disabled]="!canSubmit">
+    {{ submitting() ? 'Envoi...' : 'Soumettre' }}
+  </button>
+</form>

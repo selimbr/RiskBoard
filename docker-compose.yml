@@ -1,0 +1,21 @@
+services:
+  backend:
+    build:
+      context: ./riskBoard
+    container_name: riskboard-backend
+    ports:
+      - "8080:8080"
+    volumes:
+      - riskboard-data:/app/data
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: riskboard-frontend
+    ports:
+      - "4200:80"
+    depends_on:
+      - backend
+
+volumes:
+  riskboard-data:

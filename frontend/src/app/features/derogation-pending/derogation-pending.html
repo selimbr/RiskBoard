@@ -1,0 +1,47 @@
+<h1>Demandes de dérogation en attente</h1>
+
+@if (error()) {
+  <p class="error">{{ error() }}</p>
+}
+
+@if (loading()) {
+  <p>Chargement...</p>
+} @else {
+  <table class="pending-table">
+    <thead>
+      <tr>
+        <th>Contrepartie</th>
+        <th>Type de risque</th>
+        <th>Montant</th>
+        <th>Raison</th>
+        <th>Demandé par</th>
+        <th>Créée le</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (d of pending(); track d.id) {
+        <tr>
+          <td>{{ d.counterpartyName }}</td>
+          <td>{{ d.limitType }}</td>
+          <td>{{ d.amount | number: '1.0-2' }}</td>
+          <td class="reason">{{ d.reason }}</td>
+          <td>{{ d.requestedBy }}</td>
+          <td>{{ d.createdAt | date: 'short' }}</td>
+          <td class="actions">
+            <button type="button" class="approve" [disabled]="processingId() === d.id" (click)="approve(d.id)">
+              Valider
+            </button>
+            <button type="button" class="reject" [disabled]="processingId() === d.id" (click)="reject(d.id)">
+              Rejeter
+            </button>
+          </td>
+        </tr>
+      } @empty {
+        <tr>
+          <td colspan="7" class="empty">Aucune demande en attente.</td>
+        </tr>
+      }
+    </tbody>
+  </table>
+}

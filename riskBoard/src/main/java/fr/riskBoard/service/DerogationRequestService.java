@@ -1,0 +1,98 @@
+package fr.riskBoard.service;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import fr.riskBoard.entities.Counterparty;
+import fr.riskBoard.entities.DerogationRequest;
+import fr.riskBoard.entities.RiskLimit;
+import fr.riskBoard.enums.DerogationStatus;
+import fr.riskBoard.dto.CreateDerogationRequest;
+import fr.riskBoard.dto.DerogationRequestDto;
+import fr.riskBoard.exception.BusinessRuleException;
+import fr.riskBoard.exception.NotFoundException;
+import fr.riskBoard.repository.CounterpartyRepository;
+import fr.riskBoard.repository.DerogationRequestRepository;
+import fr.riskBoard.repository.RiskLimitRepository;
+import lombok.RequiredArgsConstructor;
+
+@Service
+@RequiredArgsConstructor
+public class DerogationRequestService {
+
+    private static final BigDecimal MAX_DEROGATION_MULTIPLIER = BigDecimal.valueOf(1.5);
+
+    private final DerogationRequestRepository derogationRequestRepository;
+    private final CounterpartyRepository counterpartyRepository;
+    private final RiskLimitRepository riskLimitRepository;
+
+    @Transactional
+    public DerogationRequestDto create(CreateDerogationRequest request) {
+        Counterparty counterparty = counterpartyRepository.findById(request.getCounterpartyId())
+                .orElseThrow(() -> new NotFoundException("Contrepartie introuvable : " + request.getCounterpartyId()));
+
+        RiskLimit riskLimit = riskLimitRepository.findByCounterpartyIdAndLimitType(counterparty.getId(), request.getLimitType())
+                .orElseThrow(() -> new BusinessRuleException(
+                        "Aucune limite " + request.getLimitType() + " n'existe pour la contrepartie " + counterparty.getName()));
+
+        BigDecimal maxAllowed = riskLimit.getMaxAmount().multiply(MAX_DEROGATION_MULTIPLIER);
+        if (request.getAmount().compareTo(maxAllowed) > 0) {
+            throw new BusinessRuleException(
+                    "Montant demandé (" + request.getAmount() + ") supérieur à 150% de la limite max ("
+                            + maxAllowed + ")");
+        }
+
+        DerogationRequest derogationRequest = DerogationRequest.builder()
+                .counterparty(counterparty)
+                .limitType(request.getLimitType())
+                .requestedBy(request.getRequestedBy())
+                .amount(request.getAmount())
+                .reason(request.getReason())
+                .status(DerogationStatus.PENDING)
+                .createdAt(LocalDateTime.now())
+                .build();
+
+        return toDto(derogationRequestRepository.save(derogationRequest));
+    }
+
+    public List<DerogationRequestDto> listPending() {
+        return derogationRequestRepository.findByStatus(DerogationStatus.PENDING).stream()
+                .map(this::toDto)
+                .toList();
+    }
+
+    @Transactional
+    public DerogationRequestDto approve(Long id) {
+        return updateStatus(id, DerogationStatus.APPROVED);
+    }
+
+    @Transactional
+    public DerogationRequestDto reject(Long id) {
+        return updateStatus(id, DerogationStatus.REJECTED);
+    }
+
+    private DerogationRequestDto updateStatus(Long id, DerogationStatus status) {
+        DerogationRequest derogationRequest = derogationRequestRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("Demande de dérogation introuvable : " + id));
+        derogationRequest.setStatus(status);
+        return toDto(derogationRequestRepository.save(derogationRequest));
+    }
+
+    private DerogationRequestDto toDto(DerogationRequest d) {
+        return DerogationRequestDto.builder()
+                .id(d.getId())
+                .counterpartyId(d.getCounterparty().getId())
+                .counterpartyName(d.getCounterparty().getName())
+                .limitType(d.getLimitType())
+                .requestedBy(d.getRequestedBy())
+                .amount(d.getAmount())
+                .reason(d.getReason())
+                .status(d.getStatus())
+                .createdAt(d.getCreatedAt())
+                .build();
+    }
+}

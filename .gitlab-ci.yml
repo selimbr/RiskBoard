@@ -1,0 +1,64 @@
+stages:
+  - build
+  - test
+
+variables:
+  MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
+
+backend-build:
+  stage: build
+  image: eclipse-temurin:21-jdk
+  script:
+    - cd riskBoard
+    - ./mvnw -B -DskipTests package
+  artifacts:
+    paths:
+      - riskBoard/target/*.jar
+    expire_in: 1 week
+  cache:
+    key: maven-repo
+    paths:
+      - .m2/repository
+
+backend-test:
+  stage: test
+  image: eclipse-temurin:21-jdk
+  script:
+    - cd riskBoard
+    - ./mvnw -B test
+  artifacts:
+    when: always
+    reports:
+      junit: riskBoard/target/surefire-reports/TEST-*.xml
+  cache:
+    key: maven-repo
+    paths:
+      - .m2/repository
+
+frontend-build:
+  stage: build
+  image: node:22-alpine
+  script:
+    - cd frontend
+    - npm ci
+    - npm run build
+  artifacts:
+    paths:
+      - frontend/dist
+    expire_in: 1 week
+  cache:
+    key: npm-cache
+    paths:
+      - frontend/.npm
+
+frontend-test:
+  stage: test
+  image: node:22-alpine
+  script:
+    - cd frontend
+    - npm ci
+    - npm test -- --watch=false
+  cache:
+    key: npm-cache
+    paths:
+      - frontend/.npm
