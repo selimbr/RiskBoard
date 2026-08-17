@@ -5,3 +5,6 @@ FICHE-TECHNIQUE-UPSERT-CSV.md
 
 # IDE
 /.idea/
+
+# Base H2 locale (générée au lancement du backend depuis la racine)
+/data/
