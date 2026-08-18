@@ -112,6 +112,7 @@ export class Dashboard implements OnInit {
       return;
     }
     this.loading.set(true);
+    this.error.set(null);
     this.riskLimitService.getSectorAggregationByType(value as LimitType).subscribe({
       next: (rows) => {
         this.aggregationRows.set(rows);

@@ -24,10 +24,10 @@ public class CreateDerogationRequest {
     private BigDecimal amount;
 
     @NotNull
-    @Size(min = 20)
+    @Size(min = 20, max = 2000)
     private String reason;
 
     @NotNull
-    @Size(min = 6)
+    @Size(min = 6, max = 255)
     private String requestedBy;
 }

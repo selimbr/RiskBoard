@@ -22,26 +22,31 @@ public class RiskCalculationService {
         return usageRate(riskLimit.getUsedAmount(), riskLimit.getMaxAmount());
     }
 
+
     public BigDecimal usageRate(BigDecimal usedAmount, BigDecimal maxAmount) {
         if (maxAmount == null || maxAmount.compareTo(BigDecimal.ZERO) == 0) {
             return BigDecimal.ZERO;
         }
-        return usedAmount.divide(maxAmount, 4, RoundingMode.HALF_UP).multiply(HUNDRED)
-                .setScale(2, RoundingMode.HALF_UP);
-    }
-
-    public AlertLevel alertLevel(BigDecimal usageRate) {
-        if (usageRate.compareTo(ORANGE_THRESHOLD) < 0) {
-            return AlertLevel.GREEN;
-        }
-        if (usageRate.compareTo(RED_THRESHOLD) <= 0) {
-            return AlertLevel.ORANGE;
-        }
-        return AlertLevel.RED;
+        return usedAmount.multiply(HUNDRED).divide(maxAmount, 2, RoundingMode.HALF_UP);
     }
 
     public AlertLevel alertLevel(RiskLimit riskLimit) {
-        return alertLevel(usageRate(riskLimit));
+        return alertLevel(riskLimit.getUsedAmount(), riskLimit.getMaxAmount());
+    }
+
+
+    public AlertLevel alertLevel(BigDecimal usedAmount, BigDecimal maxAmount) {
+        if (maxAmount == null || maxAmount.compareTo(BigDecimal.ZERO) == 0) {
+            return AlertLevel.GREEN;
+        }
+        BigDecimal usedTimesHundred = usedAmount.multiply(HUNDRED);
+        if (usedTimesHundred.compareTo(maxAmount.multiply(ORANGE_THRESHOLD)) < 0) {
+            return AlertLevel.GREEN;
+        }
+        if (usedTimesHundred.compareTo(maxAmount.multiply(RED_THRESHOLD)) <= 0) {
+            return AlertLevel.ORANGE;
+        }
+        return AlertLevel.RED;
     }
 
     /**

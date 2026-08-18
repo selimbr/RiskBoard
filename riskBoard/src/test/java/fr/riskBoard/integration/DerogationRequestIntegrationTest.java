@@ -168,6 +168,30 @@ class DerogationRequestIntegrationTest {
     }
 
     @Test
+    void shouldReturn400InsteadOf500WhenReasonExceedsColumnLength() throws Exception {
+        CreateDerogationRequest request = requestFor(BigDecimal.valueOf(100_000));
+        request.setReason("a".repeat(5000));
+
+        mockMvc.perform(post("/api/derogations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors.reason").exists());
+    }
+
+    @Test
+    void shouldReturn400WhenRequestedByExceedsColumnLength() throws Exception {
+        CreateDerogationRequest request = requestFor(BigDecimal.valueOf(100_000));
+        request.setRequestedBy("a".repeat(300));
+
+        mockMvc.perform(post("/api/derogations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors.requestedBy").exists());
+    }
+
+    @Test
     void shouldApproveDerogationAndRemoveItFromPendingList() throws Exception {
         String body = mockMvc.perform(post("/api/derogations")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -209,5 +233,24 @@ class DerogationRequestIntegrationTest {
     void shouldReturn404WhenApprovingUnknownDerogation() throws Exception {
         mockMvc.perform(post("/api/derogations/{id}/approve", 999_999))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void shouldRejectRejectingAnAlreadyApprovedDerogation() throws Exception {
+        // Scénario signalé : un POST /reject sur une demande déjà APPROVED ne
+        // doit pas la repasser en REJECTED.
+        String body = mockMvc.perform(post("/api/derogations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(requestFor(BigDecimal.valueOf(600_000)))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long id = objectMapper.readTree(body).get("id").asLong();
+
+        mockMvc.perform(post("/api/derogations/{id}/approve", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("APPROVED"));
+
+        mockMvc.perform(post("/api/derogations/{id}/reject", id))
+                .andExpect(status().isBadRequest());
     }
 }

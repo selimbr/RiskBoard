@@ -22,7 +22,7 @@
     @if (s.errorCount > 0) {
       <p class="error-count">{{ s.errorCount }} ligne(s) en erreur :</p>
       <ul class="error-list">
-        @for (e of s.errors; track e.line) {
+        @for (e of s.errors; track $index) {
           <li>Ligne {{ e.line }} : {{ e.message }}</li>
         }
       </ul>

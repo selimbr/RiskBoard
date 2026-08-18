@@ -38,6 +38,21 @@ class RiskCalculationServiceTest {
         assertThat(service.alertLevel(limitExactly90)).isEqualTo(AlertLevel.ORANGE);
     }
 
+
+    @Test
+    void usageRateArbitrarilyCloseToThresholdShouldStayGreen() {
+        RiskLimit limit = riskLimit("Banking", "699997", "1000000");
+
+        assertThat(service.alertLevel(limit)).isEqualTo(AlertLevel.GREEN);
+    }
+
+    @Test
+    void usageRateArbitrarilyCloseToThresholdShouldStayOrange() {
+        RiskLimit limit = riskLimit("Banking", "899997", "1000000");
+
+        assertThat(service.alertLevel(limit)).isEqualTo(AlertLevel.ORANGE);
+    }
+
     @Test
     void usageRateAbove90ShouldBeRed() {
         RiskLimit limit = riskLimit("Banking", "95", "100");

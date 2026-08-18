@@ -66,6 +66,7 @@ public class DerogationRequestService {
      * utilisée par le validator asynchrone du formulaire frontend, qui ne doit
      * pas reproduire ce calcul côté client.
      */
+    @Transactional(readOnly = true)
     public DerogationEligibility checkEligibility(Long counterpartyId, LimitType limitType, BigDecimal amount) {
         RiskLimit riskLimit = riskLimitRepository.findByCounterpartyIdAndLimitType(counterpartyId, limitType)
                 .orElseThrow(() -> new NotFoundException(
@@ -82,6 +83,7 @@ public class DerogationRequestService {
         return riskLimit.getMaxAmount().multiply(MAX_DEROGATION_MULTIPLIER);
     }
 
+    @Transactional(readOnly = true)
     public List<DerogationRequestDto> listPending() {
         return derogationRequestRepository.findByStatus(DerogationStatus.PENDING).stream()
                 .map(this::toDto)
@@ -101,6 +103,10 @@ public class DerogationRequestService {
     private DerogationRequestDto updateStatus(Long id, DerogationStatus status) {
         DerogationRequest derogationRequest = derogationRequestRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("Demande de dérogation introuvable : " + id));
+        if (derogationRequest.getStatus() != DerogationStatus.PENDING) {
+            throw new BusinessRuleException(
+                    "Impossible de modifier une demande déjà traitée (statut actuel : " + derogationRequest.getStatus() + ")");
+        }
         derogationRequest.setStatus(status);
         return toDto(derogationRequestRepository.save(derogationRequest));
     }

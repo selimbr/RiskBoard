@@ -1,4 +1,5 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
   AbstractControl,
   AsyncValidatorFn,
@@ -9,12 +10,11 @@ import {
   ValidatorFn,
   Validators
 } from '@angular/forms';
-import { catchError, debounceTime, map, of, switchMap } from 'rxjs';
+import { catchError, debounceTime, EMPTY, map, merge, of, switchMap } from 'rxjs';
 import { DecimalPipe } from '@angular/common';
 
 import { CounterpartyService } from '../../core/services/counterparty.service';
 import { DerogationService } from '../../core/services/derogation.service';
-import { RiskLimitService } from '../../core/services/risk-limit.service';
 import { Counterparty } from '../../core/models/counterparty.model';
 import { LIMIT_TYPES, LimitType } from '../../core/models/risk.model';
 
@@ -35,8 +35,8 @@ type LimitCheckState = 'idle' | 'checking' | 'exists' | 'missing';
 })
 export class DerogationForm implements OnInit {
   private readonly counterpartyService = inject(CounterpartyService);
-  private readonly riskLimitService = inject(RiskLimitService);
   private readonly derogationService = inject(DerogationService);
+  private readonly destroyRef = inject(DestroyRef);
 
   protected readonly limitTypes = LIMIT_TYPES;
   protected readonly counterparties = signal<Counterparty[]>([]);
@@ -57,28 +57,36 @@ export class DerogationForm implements OnInit {
   });
 
   ngOnInit(): void {
-    this.counterpartyService.getAll().subscribe((list) => this.counterparties.set(list));
-
-    this.form.controls.counterpartyId.valueChanges.subscribe(() => this.onLimitSelectorChanged());
-    this.form.controls.limitType.valueChanges.subscribe(() => this.onLimitSelectorChanged());
+    this.counterpartyService
+      .getAll()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((list) => this.counterparties.set(list));
+    this.watchLimitSelectorChanges();
   }
 
-  private onLimitSelectorChanged(): void {
-    this.form.controls.amount.updateValueAndValidity();
+  private watchLimitSelectorChanges(): void {
+    merge(this.form.controls.counterpartyId.valueChanges, this.form.controls.limitType.valueChanges)
+      .pipe(
+        switchMap(() => {
+          this.form.controls.amount.updateValueAndValidity();
 
-    const counterpartyId = this.form.controls.counterpartyId.value;
-    const limitType = this.form.controls.limitType.value;
+          const counterpartyId = this.form.controls.counterpartyId.value;
+          const limitType = this.form.controls.limitType.value;
 
-    if (!counterpartyId || !limitType) {
-      this.limitCheckState.set('idle');
-      return;
-    }
+          if (!counterpartyId || !limitType) {
+            this.limitCheckState.set('idle');
+            return EMPTY;
+          }
 
-    this.limitCheckState.set('checking');
-    this.riskLimitService.findLimit(counterpartyId, limitType).subscribe({
-      next: () => this.limitCheckState.set('exists'),
-      error: () => this.limitCheckState.set('missing')
-    });
+          this.limitCheckState.set('checking');
+          return this.derogationService.checkEligibility(counterpartyId, limitType, 0).pipe(
+            map(() => 'exists' as const),
+            catchError(() => of('missing' as const))
+          );
+        }),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe((state) => this.limitCheckState.set(state));
   }
 
   private amountWithinLimitValidator(): AsyncValidatorFn {

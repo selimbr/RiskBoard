@@ -7,6 +7,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import fr.riskBoard.enums.LimitType;
 import fr.riskBoard.entities.RiskLimit;
@@ -18,6 +19,7 @@ import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class RiskLimitService {
 
     private final RiskLimitRepository riskLimitRepository;
@@ -30,7 +32,6 @@ public class RiskLimitService {
     }
 
     private RiskLimitDashboardRow toDashboardRow(RiskLimit riskLimit) {
-        BigDecimal usageRate = riskCalculationService.usageRate(riskLimit);
         return RiskLimitDashboardRow.builder()
                 .riskLimitId(riskLimit.getId())
                 .counterpartyId(riskLimit.getCounterparty().getId())
@@ -39,8 +40,8 @@ public class RiskLimitService {
                 .sector(riskLimit.getCounterparty().getSector())
                 .maxAmount(riskLimit.getMaxAmount())
                 .usedAmount(riskLimit.getUsedAmount())
-                .usageRate(usageRate)
-                .alertLevel(riskCalculationService.alertLevel(usageRate))
+                .usageRate(riskCalculationService.usageRate(riskLimit))
+                .alertLevel(riskCalculationService.alertLevel(riskLimit))
                 .build();
     }
 

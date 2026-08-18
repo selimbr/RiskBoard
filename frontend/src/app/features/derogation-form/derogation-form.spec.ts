@@ -1,27 +1,19 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { of, throwError } from 'rxjs';
+import { of, Subject, throwError } from 'rxjs';
 
 import { DerogationForm } from './derogation-form';
 import { CounterpartyService } from '../../core/services/counterparty.service';
-import { RiskLimitService } from '../../core/services/risk-limit.service';
 import { DerogationService } from '../../core/services/derogation.service';
 import { Counterparty } from '../../core/models/counterparty.model';
-import { RiskLimitDto } from '../../core/models/risk.model';
+import { DerogationEligibility } from '../../core/models/derogation.model';
 
 describe('DerogationForm', () => {
   const counterparties: Counterparty[] = [
     { id: 1, name: 'BNP PARIBAS', ricosCode: 'RICOS48213', country: 'FR', sector: 'Banking' }
   ];
 
-  const riskLimit: RiskLimitDto = {
-    id: 10,
-    counterpartyId: 1,
-    limitType: 'CREDIT',
-    maxAmount: 1_000_000,
-    usedAmount: 500_000,
-    currency: 'EUR'
-  };
+  const maxAllowedAmount = 1_500_000; // 1_000_000 (maxAmount) * 1.5
 
   const validFormValue = {
     counterpartyId: 1,
@@ -31,21 +23,15 @@ describe('DerogationForm', () => {
     requestedBy: 'j.dupont'
   };
 
-  const maxAllowedAmount = riskLimit.maxAmount * 1.5;
-
   let counterpartyServiceSpy: { getAll: ReturnType<typeof vi.fn> };
-  let riskLimitServiceSpy: { findLimit: ReturnType<typeof vi.fn> };
   let derogationServiceSpy: { create: ReturnType<typeof vi.fn>; checkEligibility: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
     counterpartyServiceSpy = { getAll: vi.fn().mockReturnValue(of(counterparties)) };
-    riskLimitServiceSpy = { findLimit: vi.fn().mockReturnValue(of(riskLimit)) };
     derogationServiceSpy = {
       create: vi.fn().mockReturnValue(of({})),
-      // Reflète la règle des 150% telle que calculée par le backend (le composant
-      // ne fait plus ce calcul lui-même) : maxAllowedAmount vient de la réponse API.
       checkEligibility: vi.fn().mockImplementation((_counterpartyId: number, _limitType: string, amount: number) =>
-        of({ allowed: amount <= maxAllowedAmount, maxAllowedAmount })
+        of({ allowed: amount <= maxAllowedAmount, maxAllowedAmount } satisfies DerogationEligibility)
       )
     };
 
@@ -53,7 +39,6 @@ describe('DerogationForm', () => {
       imports: [DerogationForm],
       providers: [
         { provide: CounterpartyService, useValue: counterpartyServiceSpy },
-        { provide: RiskLimitService, useValue: riskLimitServiceSpy },
         { provide: DerogationService, useValue: derogationServiceSpy }
       ]
     }).compileComponents();
@@ -66,8 +51,6 @@ describe('DerogationForm', () => {
   function createComponent() {
     const fixture = TestBed.createComponent(DerogationForm);
     fixture.detectChanges();
-    // `form`/`submit`/... are `protected` (template-only API by design) — cast to
-    // reach them directly from the spec instead of driving the whole DOM per test.
     const component = fixture.componentInstance as unknown as any;
     return { fixture, component };
   }
@@ -91,17 +74,44 @@ describe('DerogationForm', () => {
     component.form.controls.counterpartyId.setValue(1);
     component.form.controls.limitType.setValue('CREDIT');
 
-    expect(riskLimitServiceSpy.findLimit).toHaveBeenCalledWith(1, 'CREDIT');
+    expect(derogationServiceSpy.checkEligibility).toHaveBeenCalledWith(1, 'CREDIT', 0);
     expect(component.limitCheckState()).toBe('exists');
   });
 
   it('should set limitCheckState to "missing" when no risk limit exists for the pair', () => {
-    riskLimitServiceSpy.findLimit.mockReturnValue(throwError(() => new Error('404')));
+    derogationServiceSpy.checkEligibility.mockReturnValue(throwError(() => new Error('404')));
     const { component } = createComponent();
 
     component.form.controls.counterpartyId.setValue(1);
     component.form.controls.limitType.setValue('CREDIT');
 
+    expect(component.limitCheckState()).toBe('missing');
+  });
+
+  it('should ignore a stale limit-check response that resolves after a newer selection', () => {
+    // Race condition : deux changements rapides déclenchent deux appels
+    // checkEligibility(). Sans switchMap, celui qui répond en dernier
+    // écraserait limitCheckState, même s'il correspond à une sélection périmée.
+    const staleResponse$ = new Subject<DerogationEligibility>();
+    const freshResponse$ = new Subject<DerogationEligibility>();
+    derogationServiceSpy.checkEligibility.mockReturnValueOnce(staleResponse$).mockReturnValueOnce(freshResponse$);
+
+    const { component } = createComponent();
+
+    component.form.controls.counterpartyId.setValue(1);
+    component.form.controls.limitType.setValue('CREDIT'); // 1er appel réel -> staleResponse$
+    component.form.controls.limitType.setValue('MARKET'); // 2e appel réel -> freshResponse$, doit annuler le 1er
+
+    expect(derogationServiceSpy.checkEligibility).toHaveBeenCalledTimes(2);
+    expect(component.limitCheckState()).toBe('checking');
+
+    // La réponse périmée du 1er appel arrive en dernier : ne doit rien changer,
+    // le composant n'est plus abonné à ce flux (switchMap l'a désabonné).
+    staleResponse$.next({ allowed: true, maxAllowedAmount });
+    expect(component.limitCheckState()).toBe('checking');
+
+    // La réponse de la sélection courante arrive enfin.
+    freshResponse$.error(new Error('404'));
     expect(component.limitCheckState()).toBe('missing');
   });
 

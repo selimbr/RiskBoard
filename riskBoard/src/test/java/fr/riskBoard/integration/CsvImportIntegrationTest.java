@@ -9,13 +9,13 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
 
 import fr.riskBoard.entities.Counterparty;
 import fr.riskBoard.entities.RiskLimit;
@@ -30,7 +30,6 @@ import fr.riskBoard.repository.RiskLimitRepository;
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@Transactional
 class CsvImportIntegrationTest {
 
     @Autowired
@@ -41,6 +40,12 @@ class CsvImportIntegrationTest {
 
     @Autowired
     private RiskLimitRepository riskLimitRepository;
+
+    @AfterEach
+    void cleanUp() {
+        riskLimitRepository.deleteAll();
+        counterpartyRepository.deleteAll();
+    }
 
     private MockMultipartFile csvFile(String content) {
         return new MockMultipartFile("file", "data.csv", "text/csv", content.getBytes(StandardCharsets.UTF_8));
@@ -82,6 +87,21 @@ class CsvImportIntegrationTest {
                 .andExpect(jsonPath("$.errors[0].message").exists());
 
         assertThat(counterpartyRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void shouldRejectRowsWithInvalidRicosCodeCountryOrCurrencyFormat() throws Exception {
+        String csv = "name,ricosCode,country,sector,limitType,maxAmount,usedAmount,currency\n"
+                + "BAD RICOS,RIC123,FR,Banking,CREDIT,50000000,32000000,EUR\n"
+                + "BAD COUNTRY,RICOS48213,FRA,Banking,CREDIT,50000000,32000000,EUR\n"
+                + "BAD CURRENCY,RICOS72905,FR,Banking,CREDIT,50000000,32000000,XYZ\n";
+
+        mockMvc.perform(multipart("/api/import/risk-limits").file(csvFile(csv)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.successCount").value(0))
+                .andExpect(jsonPath("$.errorCount").value(3));
+
+        assertThat(counterpartyRepository.count()).isZero();
     }
 
     @Test

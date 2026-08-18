@@ -85,6 +85,10 @@ class DerogationRequestServiceTest {
     }
 
     private DerogationRequest pendingEntity() {
+        return entityWithStatus(DerogationStatus.PENDING);
+    }
+
+    private DerogationRequest entityWithStatus(DerogationStatus status) {
         return DerogationRequest.builder()
                 .id(1L)
                 .counterparty(counterparty)
@@ -92,7 +96,7 @@ class DerogationRequestServiceTest {
                 .requestedBy("j.dupont")
                 .amount(BigDecimal.valueOf(100_000))
                 .reason(VALID_REASON)
-                .status(DerogationStatus.PENDING)
+                .status(status)
                 .createdAt(LocalDateTime.now())
                 .build();
     }
@@ -228,6 +232,38 @@ class DerogationRequestServiceTest {
         DerogationRequestDto dto = service.reject(1L);
 
         assertThat(dto.getStatus()).isEqualTo(DerogationStatus.REJECTED);
+    }
+
+    @Test
+    void shouldRejectApprovingADerogationThatIsAlreadyApproved() {
+        when(derogationRequestRepository.findById(1L)).thenReturn(Optional.of(entityWithStatus(DerogationStatus.APPROVED)));
+
+        assertThatThrownBy(() -> service.approve(1L))
+                .isInstanceOf(BusinessRuleException.class);
+
+        verify(derogationRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldRejectRejectingADerogationThatIsAlreadyApproved() {
+        // Le scénario signalé : POST /reject sur une demande déjà APPROVED
+        // ne doit pas la repasser en REJECTED.
+        when(derogationRequestRepository.findById(1L)).thenReturn(Optional.of(entityWithStatus(DerogationStatus.APPROVED)));
+
+        assertThatThrownBy(() -> service.reject(1L))
+                .isInstanceOf(BusinessRuleException.class);
+
+        verify(derogationRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldRejectApprovingADerogationThatIsAlreadyRejected() {
+        when(derogationRequestRepository.findById(1L)).thenReturn(Optional.of(entityWithStatus(DerogationStatus.REJECTED)));
+
+        assertThatThrownBy(() -> service.approve(1L))
+                .isInstanceOf(BusinessRuleException.class);
+
+        verify(derogationRequestRepository, never()).save(any());
     }
 
     @Test
